@@ -30,50 +30,45 @@ class _CameraPageState extends State<CameraPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeCamera();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // await _requestAssets();
+      final List<CameraDescription> result = await availableCameras();
+      if (result.isNotEmpty) {
+        _cameras = result;
+        onNewCameraSelected(result[0]);
+        setState(() {});
+      }
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    controller?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
-    }
-  }
+    final CameraController? cameraController = controller;
 
-  Future<void> _initializeCamera() async {
-    final PermissionStatus cameraPermissionStatus =
-        await Permission.camera.status;
-    if (cameraPermissionStatus.isDenied) {
-      await Permission.camera.request();
+    // App state changed before we got the chance to initialize.
+    if (cameraController == null || !cameraController.value.isInitialized) {
+      return;
     }
 
-    final PermissionStatus storagePermissionStatus =
-        await Permission.storage.status;
-    if (storagePermissionStatus.isDenied) {
-      await Permission.storage.request();
-    }
-
-    final cameras = await availableCameras();
-    if (cameras.isNotEmpty) {
-      _cameras = cameras;
-      onNewCameraSelected(cameras.first);
+    if (state == AppLifecycleState.inactive) {
+      cameraController.dispose();
+    } else if (state == AppLifecycleState.resumed) {
+      _initializeCameraController(cameraController.description);
     }
   }
 
   Future<void> _requestAssets() async {
-    // Request permissions.
-    // final PermissionState ps = await PhotoManager.requestPermissionExtend();
-    final PermissionStatus status = await Permission.storage.status;
-    if (status.isDenied) {
-      await Permission.storage.request();
-    }
+    await <Permission>[
+      Permission.storage,
+    ].request();
+
+    await Permission.storage.request();
 
     if (!mounted) {
       return;
@@ -107,10 +102,9 @@ class _CameraPageState extends State<CameraPage>
   Future<void> _initializeCameraController(
     CameraDescription cameraDescription,
   ) async {
-    final PermissionStatus status = await Permission.camera.status;
-    if (status.isDenied) {
-      await Permission.camera.request().isGranted;
-    }
+    await <Permission>[
+      Permission.camera,
+    ].request();
 
     final CameraController cameraController = CameraController(
       cameraDescription,
@@ -135,25 +129,7 @@ class _CameraPageState extends State<CameraPage>
 
   Future<void> onNewCameraSelected(CameraDescription cameraDescription) async {
     if (controller != null) {
-      await controller!.dispose();
-    }
-    controller = CameraController(
-      cameraDescription,
-      ResolutionPreset.high,
-      imageFormatGroup: ImageFormatGroup.jpeg,
-    );
-
-    controller!.addListener(() {
-      if (mounted) {
-        setState(() {});
-      }
-    });
-
-    try {
-      await controller!.initialize();
-      setState(() {});
-    } catch (e) {
-      print('Error initializing camera: $e');
+      return controller!.setDescription(cameraDescription);
     }
   }
 
@@ -189,14 +165,12 @@ class _CameraPageState extends State<CameraPage>
     final CameraController? cameraController = controller;
 
     if (cameraController == null || !cameraController.value.isInitialized) {
-      return const Center(
-        child: Text(
-          "No avaiable",
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 24.0,
-            fontWeight: FontWeight.w900,
-          ),
+      return const Text(
+        "No camera avaiable",
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 24.0,
+          fontWeight: FontWeight.w900,
         ),
       );
     } else {
